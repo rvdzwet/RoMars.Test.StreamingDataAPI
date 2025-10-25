@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.IO.Compression;
 using Microsoft.AspNetCore.ResponseCompression;
 using RoMars.Test.StreamingDataAPI;
+using System.Data.Common; // For DbConnection
 
 internal class Program
 {
@@ -34,37 +35,66 @@ internal class Program
             options.MimeTypes = new[] { "application/json" };
         });
 
-        // Service Registration
-        builder.Services.AddSingleton(sp =>
-        {
-            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger<ProductRepository>();
-            return new ProductRepository(connectionString, logger);
-        });
+        // --- 1. Service Registration and Dependency Injection ---
+
+        // Register IDbConnectionFactory as a singleton
+        builder.Services.AddSingleton<IDbConnectionFactory>(sp => new SqlConnectionFactory(connectionString));
+
+        // Register IProductDataGenerator as a singleton
+        // Performance Comment: ProductDataReader is a zero-allocation generator that creates
+        // synthetic data on-the-fly, avoiding large memory footprints. Registering it
+        // as a singleton (if its state management is thread-safe and stateless or idempotent)
+        // ensures that creation overhead is incurred only once.
+        builder.Services.AddSingleton<IProductDataGenerator>(sp => new ProductDataReader(
+            builder.Configuration.GetValue<long>("Seeding:RecordCount", 10_000_000))); // Default to 10M records
+
+        // Register IProductTableManager as a singleton
+        builder.Services.AddSingleton<IProductTableManager, ProductTableManager>();
+
+        // Register ProductRepository as a singleton. It depends on IDbConnectionFactory and ILogger.
+        builder.Services.AddSingleton<ProductRepository>();
+
+        // Register Seeder as a singleton. It orchestrates table management and data generation.
+        builder.Services.AddSingleton<Seeder>();
 
         // Configure high concurrency limits on the web server
+        // Performance Comment: Kestrel is configured with 5000 MaxConcurrentConnections.
+        // This is a server-level optimization that allows Kestrel to handle a large
+        // number of concurrent client connections, crucial for high-throughput
+        // streaming APIs.
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Limits.MaxConcurrentConnections = 5000;
         });
 
-        // --- 2. Minimal API Definition and Execution ---
-
+        // Application Build
         var app = builder.Build();
 
-        // Resolve the necessary services for the Seeder
-        var seederLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<Program>();
+        // --- 2. Database Seeding on Startup ---
+        // CRITICAL: Execute Seeding synchronously on startup (only once). This MUST complete before the server starts.
+        // For production, this should typically be guarded by an environment check or a health check that ensures
+        // the database is ready and seeded, perhaps as part of a migration system, not on every app startup.
+        // Performance Comment: Seeding is a one-time startup cost. Although it's synchronous here,
+        // the seeding process itself (using SqlBulkCopy and IDataReader) is highly optimized
+        // for performance.
+        using (var scope = app.Services.CreateScope())
+        {
+            var services = scope.ServiceProvider;
+            var seeder = services.GetRequiredService<Seeder>();
+            seeder.SeedProductsAsync().GetAwaiter().GetResult(); // Block startup until seeding is done
+        }
 
-        // CRITICAL: Execute Seeding synchronously on startup. This MUST complete before the server starts.
-        // For production, you would wrap this in a check (e.g., if env is development or if db is empty).
-        var seedingTask = Seeder.SeedProductsAsync(connectionString, seederLogger);
-        seedingTask.GetAwaiter().GetResult(); // Block the startup until seeding is done
+        // --- 3. Minimal API Definition and Execution ---
+
+        app.UseResponseCompression(); // Performance Comment: Enables Brotli/Gzip compression for
+                                      // JSON responses, significantly reducing bandwidth usage and
+                                      // improving client-side load times, especially for large data streams.
 
         app.UseResponseCompression();
 
         app.MapGet("/api/products/ultimate-stream",
-            ([FromServices] ProductRepository repo, [FromServices] ILoggerFactory loggerFactory) =>
+            ([FromServices] ProductRepository repo, [FromServices] ILogger<StreamingJsonResult> logger) =>
             {
-                var logger = loggerFactory.CreateLogger("StreamingJsonResultExecution");
                 return new StreamingJsonResult(repo, logger);
             })
         .WithName("UltimateStream");

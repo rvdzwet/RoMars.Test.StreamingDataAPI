@@ -1,90 +1,96 @@
 ﻿using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using System.Data; // Required for IDataReader
 using System.Diagnostics;
 
 namespace RoMars.Test.StreamingDataAPI
 {
-
     /// <summary>
-    /// Static utility class for bulk-seeding the Products table.
-    /// This uses SqlBulkCopy combined with a custom IDataReader for zero-allocation
-    /// streaming of data from C# to SQL Server, achieving massive insertion performance.
+    /// Handles the bulk-seeding process for the Products table.
+    /// This class uses SqlBulkCopy combined with a custom IProductDataGenerator (IDataReader)
+    /// for zero-allocation streaming of data from C# to SQL Server, achieving massive insertion performance.
     /// </summary>
-    public static partial class Seeder
+    /// <remarks>
+    /// This class adheres to the Single Responsibility Principle by focusing solely on
+    /// seeding the database. It depends on abstractions (IProductDataGenerator, IProductTableManager, IDbConnectionFactory)
+    /// which promotes the Dependency Inversion Principle and Open/Closed Principle.
+    /// </remarks>
+    public class Seeder
     {
-        // Total number of records to be generated and inserted. (1 Billion)
-        private const long RecordCount = 10_000_000;
+        private readonly IProductDataGenerator _dataGenerator;
+        private readonly IProductTableManager _tableManager;
+        private readonly IDbConnectionFactory _connectionFactory;
+        private readonly ILogger<Seeder> _logger;
+        private readonly long _recordCount;
+        private const int BatchSize = 1_000_000; // Performance Comment: A larger batch reduces
+                                                // network round trips and SQL Server overhead
+                                                // during bulk copy operations.
 
-        // Size of the batch for SqlBulkCopy operation. A larger batch reduces network round trips.
-        private const int BatchSize = 1_000_000;
+        public Seeder(ILogger<Seeder> logger,
+                      IProductDataGenerator dataGenerator,
+                      IProductTableManager tableManager,
+                      IDbConnectionFactory connectionFactory,
+                      long recordCount = 10_000_000) // Default to 10 million for seeding
+        {
+            _logger = logger;
+            _dataGenerator = dataGenerator;
+            _tableManager = tableManager;
+            _connectionFactory = connectionFactory;
+            _recordCount = recordCount;
+        }
 
         /// <summary>
-        /// Executes the bulk copy operation to seed the Products table with 1 billion records.
+        /// Executes the bulk copy operation to seed the Products table.
+        /// Performance Comment: SqlBulkCopy is highly optimized for inserting large
+        /// amounts of data into SQL Server. It bypasses the traditional INSERT
+        /// statement overhead, writing directly to the database.
         /// </summary>
-        /// <param name="connectionString">The connection string for the database.</param>
-        /// <param name="logger">The logger instance for diagnostics.</param>
-        public static async Task SeedProductsAsync(string connectionString, ILogger logger)
+        public async Task SeedProductsAsync()
         {
-            logger.LogInformation("Starting database seeding of {Count:N0} records. This will take significant time and resources.", RecordCount);
+            _logger.LogInformation("Starting database seeding of {Count:N0} records. This will take significant time and resources. ThreadID: {ThreadId}",
+                                  _recordCount, Environment.CurrentManagedThreadId);
 
-            // Ensure the table exists before attempting bulk copy
-            await EnsureTableExistsAsync(connectionString, logger);
+            await _tableManager.EnsureTableExistsAsync();
 
-            using var connection = new SqlConnection(connectionString);
+            using var connection = _connectionFactory.CreateConnection();
             await connection.OpenAsync();
 
             var bulkCopyTimer = Stopwatch.StartNew();
 
             try
             {
-                 using (var bulkCopy = new SqlBulkCopy(connection))
+                using (var bulkCopy = new SqlBulkCopy((SqlConnection)connection)) // Cast to SqlConnection for SqlBulkCopy
                 {
                     bulkCopy.DestinationTableName = "Products";
                     bulkCopy.BatchSize = BatchSize;
-                    bulkCopy.NotifyAfter = BatchSize; // Log progress every 10 million rows
+                    bulkCopy.NotifyAfter = BatchSize; // Log progress every batch
 
                     bulkCopy.SqlRowsCopied += (sender, e) =>
                     {
-                        logger.LogInformation("Seeding progress: {RowsCopied:N0} rows copied.", e.RowsCopied);
+                        var elapsed = bulkCopyTimer.Elapsed.TotalMilliseconds;
+                        _logger.LogInformation("Seeding progress: {RowsCopied:N0} rows copied. Elapsed: {ElapsedMs}ms",
+                            e.RowsCopied, elapsed);
                     };
 
-                    // The custom IDataReader streams the data directly, preventing large memory allocation.
-                    using var reader = new ProductDataReader(RecordCount);
-
-                    logger.LogTrace("Starting SqlBulkCopy write to server...");
-                    await bulkCopy.WriteToServerAsync(reader);
-                    logger.LogTrace("SqlBulkCopy finished writing to server.");
+                    // Performance Comment: Using a custom IDataReader (IProductDataGenerator)
+                    // with SqlBulkCopy prevents loading all data into memory at once.
+                    // Data is streamed directly from the generator to SQL Server,
+                    // resulting in zero-allocation and massive performance gains for large datasets.
+                    await bulkCopy.WriteToServerAsync((IDataReader)_dataGenerator);
+                    _logger.LogTrace("SqlBulkCopy finished writing to server.");
                 }
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "SqlBulkCopy failed during seeding.");
+                _logger.LogError(ex, "SqlBulkCopy failed during seeding. ThreadID: {ThreadId}", Environment.CurrentManagedThreadId);
+                throw; // Re-throw to indicate a critical startup failure
             }
-
-            bulkCopyTimer.Stop();
-            logger.LogInformation("Database seeding complete. Total time: {Elapsed}", bulkCopyTimer.Elapsed);
-        }
-
-        /// <summary>
-        /// Creates the Products table if it does not already exist.
-        /// </summary>
-        private static async Task EnsureTableExistsAsync(string connectionString, ILogger logger)
-        {
-            const string createTableSql = @"
-            IF OBJECT_ID('dbo.Products', 'U') IS NOT NULL 
-                DROP TABLE dbo.Products;
-            CREATE TABLE dbo.Products (
-                Id INT PRIMARY KEY,
-                Name NVARCHAR(100) NOT NULL,
-                Price DECIMAL(18, 2) NOT NULL
-            );";
-
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
-            using var command = new SqlCommand(createTableSql, connection);
-
-            logger.LogInformation("Ensuring Products table is created/recreated.");
-            await command.ExecuteNonQueryAsync();
+            finally
+            {
+                bulkCopyTimer.Stop();
+                _logger.LogInformation("Database seeding complete. Total time: {Elapsed}. Seeded {Count:N0} records. ThreadID: {ThreadId}",
+                                      bulkCopyTimer.Elapsed, _recordCount, Environment.CurrentManagedThreadId);
+            }
         }
     }
 }
