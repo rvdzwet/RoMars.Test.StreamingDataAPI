@@ -1,0 +1,6 @@
+@RoMars.Test.StreamingDataAPI_HostAddress = http://localhost:5198
+
+GET {{RoMars.Test.StreamingDataAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
