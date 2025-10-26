@@ -1,6 +1,6 @@
 using System.Data.Common; // For DbConnection
 
-namespace RoMars.Test.StreamingDataAPI
+namespace RoMars.StreamingJsonOutput.Framework
 {
     /// <summary>
     /// Defines a factory for creating database connections.

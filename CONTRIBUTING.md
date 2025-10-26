@@ -25,7 +25,7 @@ To ensure a smooth and effective collaboration, please follow these guidelines.
 
     *   **Adhere to SOLID Principles:** Ensure your changes maintain or improve adherence to Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion Principles.
     *   **Clean Code Standards:** Follow consistent naming conventions, maintain readability, and write self-documenting code.
-    *   **Performance Comments:** If your changes introduce or affect performance-critical sections, add comments similar to existing ones explaining the optimization rationale.
+    *   **Performance Comments:** If your changes introduce or affect performance-critical sections, add comments similar to existing ones explaining the optimization rationale. For changes affecting wide tables (105 columns) or streaming, detail how performance is maintained or improved.
     *   **Logging:** Ensure appropriate trace-level logging is maintained or added for performance-critical operations.
 
 5.  **Test Your Changes:** Before submitting, thoroughly test your changes to ensure they work as expected and do not introduce regressions.
@@ -50,10 +50,10 @@ To ensure a smooth and effective collaboration, please follow these guidelines.
 
 ## Code Style
 
-*   We generally follow the [C# Coding Conventions](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions) recommended by Microsoft, along with a focus on code readability, maintainability, and performance for streaming data.
-*   Use meaningful names for variables, methods, and classes.
+*   We generally follow the [C# Coding Conventions](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions) recommended by Microsoft, along with a focus on code readability, maintainability, and performance for streaming wide document metadata.
+*   Use meaningful names for variables, methods, and classes, especially for the 105 document metadata columns.
 *   Keep methods concise and focused on a single responsibility.
-*   Add comments where the code's intent is not immediately obvious, especially for complex logic or performance-critical sections.
+*   Add comments where the code's intent is not immediately obvious, especially for complex logic or performance-critical sections (e.g., handling wide tables during streaming).
 
 ## Issue Reporting
 

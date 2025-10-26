@@ -1,7 +1,7 @@
 using Microsoft.Data.SqlClient;
 using System.Data.Common; // For DbConnection
 
-namespace RoMars.Test.StreamingDataAPI
+namespace RoMars.StreamingJsonOutput.Framework
 {
     /// <summary>
     /// A concrete implementation of IDbConnectionFactory for creating SqlConnection instances.
