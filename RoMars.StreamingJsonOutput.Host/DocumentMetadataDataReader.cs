@@ -1,4 +1,6 @@
 ﻿using System.Data;
+using Microsoft.Extensions.Logging;
+using HostLoggerExtensions = RoMars.StreamingJsonOutput.Host.Extensions.LoggerExtensions;
 
 namespace RoMars.StreamingJsonOutput.Host
 {
@@ -21,6 +23,7 @@ namespace RoMars.StreamingJsonOutput.Host
         private readonly long _recordsToGenerate;
         private long _currentIndex;
         private readonly long _startingId;
+        private readonly ILogger<DocumentMetadataDataReader> _logger;
         // Performance Comment: Random.Shared is used for thread-safe random number generation
         // in .NET 6+, avoiding contention and seeding issues that can arise with
         // multiple Random instances in a multi-threaded context.
@@ -33,12 +36,17 @@ namespace RoMars.StreamingJsonOutput.Host
 
         private static readonly IReadOnlyList<DocumentMetadataSchema.ColumnInfo> _schema = DocumentMetadataSchema.Columns;
 
-        public DocumentMetadataDataReader(long startingId, long recordsToGenerate)
+        public DocumentMetadataDataReader(long startingId, long recordsToGenerate, ILogger<DocumentMetadataDataReader> logger)
         {
             _startingId = startingId;
             _recordsToGenerate = recordsToGenerate;
             _currentIndex = 0;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _values = new object[_schema.Count]; // Initialize _values array based on schema count
+
+            _logger.LogInformation(HostLoggerExtensions.LogDataReaderInitialized.Id, 
+                "DocumentMetadataDataReader initialized with StartingId: {StartingId}, RecordsToGenerate: {RecordsToGenerate:N0}.", 
+                _startingId, _recordsToGenerate);
         }
 
         // Performance Comment: This 'Read' method incrementally advances a counter.
@@ -48,6 +56,9 @@ namespace RoMars.StreamingJsonOutput.Host
         public bool Read()
         {
             _currentIndex++;
+            _logger.LogTrace(HostLoggerExtensions.LogDataReaderRead.Id, 
+                "DataReader Read() called. Current index: {CurrentIndex}.", 
+                _currentIndex);
             return _currentIndex <= _recordsToGenerate;
         }
 
@@ -117,8 +128,15 @@ namespace RoMars.StreamingJsonOutput.Host
                 int daysOffset = _random.Next(-365 * 5, 0); // Dates within last 5 years
                 return DateTime.UtcNow.AddDays(daysOffset).Date;
             }
-
-            throw new IndexOutOfRangeException($"Unhandled column generation for ordinal {i}, name '{column.Name}'.");
+            _logger.LogDebug(HostLoggerExtensions.LogDataReaderGetValue.Id, 
+                "DataReader GetValue() called for ordinal {Ordinal}, column '{ColumnName}'.", 
+                i, column.Name);
+            
+            var ex = new IndexOutOfRangeException($"Unhandled column generation for ordinal {i}, name '{column.Name}'.");
+            _logger.LogError(HostLoggerExtensions.LogDataReaderUnhandledColumn.Id, ex, 
+                "Unhandled column generation for ordinal {Ordinal}, name '{ColumnName}'.", 
+                i, column.Name);
+            throw ex;
         }
 
         // --- IDataReader and IDocumentMetadataGenerator Implementation Details ---
@@ -164,19 +182,19 @@ namespace RoMars.StreamingJsonOutput.Host
         public void Dispose() { } // No unmanaged resources
         public bool GetBoolean(int i) => (bool)GetValue(i);
         public byte GetByte(int i) => (byte)GetValue(i);
-        public long GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length) => throw new NotSupportedException("Byte array retrieval not supported directly.");
+        public long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length) => throw new NotSupportedException("Byte array retrieval not supported directly.");
         public char GetChar(int i) => (char)GetValue(i);
-        public long GetChars(int i, long fieldoffset, char[] buffer, int bufferoffset, int length) => throw new NotSupportedException("Char array retrieval not supported directly.");
+        public long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length) => throw new NotSupportedException("Char array retrieval not supported directly.");
         public IDataReader GetData(int i) => throw new NotSupportedException("Nested data readers not supported for this generator.");
-        public string GetString(int i) => GetValue(i).ToString();
-        public decimal GetDecimal(int i) => (decimal)GetValue(i);
-        public DateTime GetDateTime(int i) => (DateTime)GetValue(i);
-        public double GetDouble(int i) => (double)GetValue(i);
-        public float GetFloat(int i) => (float)GetValue(i);
-        public Guid GetGuid(int i) => (Guid)GetValue(i); // Assuming GUID generation if needed
-        public short GetInt16(int i) => (short)GetValue(i);
-        public int GetInt32(int i) => (int)GetValue(i);
-        public long GetInt64(int i) => (long)GetValue(i); // Performance Comment: Directly casts GetValue(i) for efficient access.
+        public string GetString(int i) => GetValue(i)?.ToString() ?? string.Empty; // Handle potential null references
+        public decimal GetDecimal(int i) => (decimal)GetValue(i)!; // Use null-forgiving operator if GetValue is guaranteed non-null based on logic
+        public DateTime GetDateTime(int i) => (DateTime)GetValue(i)!;
+        public double GetDouble(int i) => (double)GetValue(i)!;
+        public float GetFloat(int i) => (float)GetValue(i)!;
+        public Guid GetGuid(int i) => (Guid)GetValue(i)!;
+        public short GetInt16(int i) => (short)GetValue(i)!;
+        public int GetInt32(int i) => (int)GetValue(i)!;
+        public long GetInt64(int i) => (long)GetValue(i)!; // Performance Comment: Directly casts GetValue(i) for efficient access.
         public int GetOrdinal(string name)
         {
             for (int i = 0; i < _schema.Count; i++)

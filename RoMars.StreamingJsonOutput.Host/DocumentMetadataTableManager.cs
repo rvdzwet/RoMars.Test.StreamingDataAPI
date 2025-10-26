@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using RoMars.StreamingJsonOutput.Framework;
+using RoMars.StreamingJsonOutput.Host.Extensions; // New Import
 using System.Data; // Required for SqlDbType
 using System.Diagnostics; // Required for Stopwatch
 using System.Text; // For StringBuilder
@@ -19,7 +20,8 @@ namespace RoMars.StreamingJsonOutput.Host
         {
             _connectionFactory = connectionFactory;
             _logger = logger;
-            _logger.LogDebug("DocumentMetadataTableManager initialized.");
+            // Using LoggerExtensions for consistent structured logging
+            _logger.LogTableManagerInitialized();
         }
 
         /// <summary>
@@ -47,22 +49,22 @@ namespace RoMars.StreamingJsonOutput.Host
             // 1. Ensure Table Exists
             using (var command = new SqlCommand(createTableSql, connection))
             {
-                _logger.LogTrace("Executing command to ensure table existence...");
+                _logger.LogTrace(2000, "Executing command to ensure table existence...");
                 int rowsAffected = await command.ExecuteNonQueryAsync();
-                _logger.LogDebug("CREATE TABLE command executed. Rows affected (expected 0/1): {RowsAffected}", rowsAffected);
+                _logger.LogDebug(2001, "CREATE TABLE command executed. Rows affected (expected 0/1): {RowsAffected}", rowsAffected);
             }
 
             // 2. Ensure Index Exists
             using (var command = new SqlCommand(createIndexSql, connection))
             {
-                _logger.LogTrace("Executing command to ensure index existence...");
+                _logger.LogTrace(2002, "Executing command to ensure index existence...");
                 int rowsAffected = await command.ExecuteNonQueryAsync();
-                _logger.LogDebug("CREATE INDEX command executed. Rows affected (expected 0/1): {RowsAffected}", rowsAffected);
+                _logger.LogDebug(2003, "CREATE INDEX command executed. Rows affected (expected 0/1): {RowsAffected}", rowsAffected);
             }
 
             timer.Stop();
-            _logger.LogTrace("DocumentMetadata table schema ensured in {ElapsedMs}ms. ThreadID: {ThreadId}", timer.Elapsed.TotalMilliseconds, Environment.CurrentManagedThreadId);
-            _logger.LogDebug("Finished table schema existence check.");
+            _logger.LogTrace(2004, "DocumentMetadata table schema ensured in {ElapsedMs}ms. ThreadID: {ThreadId}", timer.Elapsed.TotalMilliseconds, Environment.CurrentManagedThreadId);
+            _logger.LogDebug(2005, "Finished table schema existence check.");
         }
 
         /// <summary>
@@ -73,26 +75,26 @@ namespace RoMars.StreamingJsonOutput.Host
             _logger.LogDebug("Starting record count retrieval.");
 
             const string countSql = "SELECT COUNT(*) FROM dbo.DocumentMetadata;";
-            _logger.LogTrace("COUNT SQL: {Sql}", countSql);
+            _logger.LogTrace(2014, "COUNT SQL: {Sql}", countSql); // New EventId
 
             using var connection = _connectionFactory.CreateConnection();
-            _logger.LogDebug("Created database connection for counting.");
+            _logger.LogDebug(2015, "Created database connection for counting."); // New EventId
 
             await connection.OpenAsync();
-            _logger.LogDebug("Successfully opened connection for counting.");
+            _logger.LogDebug(2016, "Successfully opened connection for counting."); // New EventId
 
             using var command = new SqlCommand(countSql, (SqlConnection)connection);
 
             var timer = Stopwatch.StartNew();
-            _logger.LogTrace("Executing COUNT query...");
+            _logger.LogTrace(2017, "Executing COUNT query..."); // New EventId
 
-            object result = await command.ExecuteScalarAsync();
-            long count = Convert.ToInt64(result);
+            object? result = await command.ExecuteScalarAsync();
+            int count = (int?)result ?? 0; // Handle potential null and cast
 
             timer.Stop();
 
-            _logger.LogTrace("Counted {Count:N0} records in DocumentMetadata table in {ElapsedMs}ms. ThreadID: {ThreadId}", count, timer.Elapsed.TotalMilliseconds, Environment.CurrentManagedThreadId);
-            _logger.LogDebug("Finished record count retrieval. Total records: {Count:N0}", count);
+            _logger.LogTrace(2006, "Counted {Count:N0} records in DocumentMetadata table in {ElapsedMs}ms. ThreadID: {ThreadId}", count, timer.Elapsed.TotalMilliseconds, Environment.CurrentManagedThreadId);
+            _logger.LogDebug(2007, "Finished record count retrieval. Total records: {Count:N0}", count);
 
             return count;
         }
@@ -161,23 +163,23 @@ namespace RoMars.StreamingJsonOutput.Host
             {
                 case SqlDbType.NVarChar:
                     string def = $"NVARCHAR({(col.Length == 0 ? "MAX" : col.Length.ToString())})";
-                    _logger.LogTrace("Mapping {Name} (NVarChar) to {Definition}", col.Name, def);
+                    _logger.LogTrace(2008, "Mapping {Name} (NVarChar) to {Definition}", col.Name, def);
                     return def;
                 case SqlDbType.Decimal:
                     def = $"DECIMAL({col.Precision}, {col.Scale})";
-                    _logger.LogTrace("Mapping {Name} (Decimal) to {Definition}", col.Name, def);
+                    _logger.LogTrace(2009, "Mapping {Name} (Decimal) to {Definition}", col.Name, def);
                     return def;
                 case SqlDbType.Int:
-                    _logger.LogTrace("Mapping {Name} (Int) to INT", col.Name);
+                    _logger.LogTrace(2010, "Mapping {Name} (Int) to INT", col.Name);
                     return "INT";
                 case SqlDbType.BigInt:
-                    _logger.LogTrace("Mapping {Name} (BigInt) to BIGINT", col.Name);
+                    _logger.LogTrace(2011, "Mapping {Name} (BigInt) to BIGINT", col.Name);
                     return "BIGINT";
                 case SqlDbType.DateTime2:
-                    _logger.LogTrace("Mapping {Name} (DateTime2) to DATETIME2", col.Name);
+                    _logger.LogTrace(2012, "Mapping {Name} (DateTime2) to DATETIME2", col.Name);
                     return "DATETIME2";
                 default:
-                    _logger.LogError("Unsupported SQL Type: {SqlType} for column {ColName}", col.SqlType, col.Name);
+                    _logger.LogError(2013, "Unsupported SQL Type: {SqlType} for column {ColName}", col.SqlType, col.Name);
                     throw new NotSupportedException($"SQL Type {col.SqlType} not supported for schema generation.");
             }
         }

@@ -3,6 +3,8 @@ using System.Data;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using Microsoft.Data.SqlClient; // For SqlExceptionExtensions and concrete SqlDataReader
+using System; // For Guid
+using static RoMars.StreamingJsonOutput.Framework.FrameworkLoggerExtensions;
 
 namespace RoMars.StreamingJsonOutput.Framework
 {
@@ -27,6 +29,8 @@ namespace RoMars.StreamingJsonOutput.Framework
 
         /// <summary>
         /// Executes a database query designed for streaming results.
+        /// Enhanced with enterprise-grade logging, including operation IDs for correlation
+        /// and detailed error information.
         /// </summary>
         /// <param name="query">The SQL query to execute.</param>
         /// <param name="parameters">An array of DbParameter objects for the query.</param>
@@ -42,9 +46,12 @@ namespace RoMars.StreamingJsonOutput.Framework
             CancellationToken cancellationToken = default,
             int commandTimeout = 60)
         {
+            var operationId = Guid.NewGuid();
             var totalTimer = Stopwatch.StartNew();
-            _logger.LogInformation("Streaming database query initiated by Thread ID: {ThreadId} with query: {Query}",
-                Environment.CurrentManagedThreadId, query);
+            _logger.LogInformation(
+                QueryInitiated,
+                "OperationId: {OperationId}, Thread ID: {ThreadId}, Query: {Query}. Streaming database query initiated.",
+                operationId, Environment.CurrentManagedThreadId, query);
 
             DbConnection? connection = null;
             int attempt = 0;
@@ -57,13 +64,19 @@ namespace RoMars.StreamingJsonOutput.Framework
                 {
                     attempt++;
                     connection = _connectionFactory.CreateConnection();
+                    _logger.LogDebug(
+                        ConnectionCreated,
+                        "OperationId: {OperationId}, Thread ID: {ThreadId}, Attempt: {Attempt}. Database connection created.",
+                        operationId, Environment.CurrentManagedThreadId, attempt);
                     
                     var connectionOpenTimer = Stopwatch.StartNew();
                     await connection.OpenAsync(cancellationToken);
                     connectionOpenTimer.Stop();
 
-                    _logger.LogTrace("Connection obtained and opened on attempt {Attempt} in {ElapsedMs}ms. Thread ID: {ThreadId}",
-                        attempt, connectionOpenTimer.Elapsed.TotalMilliseconds, Environment.CurrentManagedThreadId);
+                    _logger.LogTrace(
+                        ConnectionOpened,
+                        "OperationId: {OperationId}, Thread ID: {ThreadId}, Attempt: {Attempt}, ConnectionOpenDurationMs: {ConnectionOpenDurationMs}. Connection obtained and opened.",
+                        operationId, Environment.CurrentManagedThreadId, attempt, connectionOpenTimer.Elapsed.TotalMilliseconds);
 
                     using var command = connection.CreateCommand();
                     command.CommandText = query;
@@ -74,19 +87,16 @@ namespace RoMars.StreamingJsonOutput.Framework
                         command.Parameters.AddRange(parameters);
                     }
 
-                    // PrepareAsync is SQL Server specific optimization, but can be removed for full DbCommand compatibility if needed.
-                    // For now, assume a compatible provider (like SqlClient) is used, matching the original context.
-                    // If connection is actually a SqlConnection, then cast and use PrepareAsync.
-                    // Otherwise, skip PrepareAsync for generic DbCommand.
                     if (command is SqlCommand sqlCommand)
                     {
                         await sqlCommand.PrepareAsync(cancellationToken);
                     }
                     else
                     {
-                        // Some DbCommand implementations might not support Prepare, or it might be a no-op.
-                        // Log a warning if PrepareAsync is not used due to non-SqlCommand type.
-                        _logger.LogDebug("Command is not a SqlCommand; skipping PrepareAsync for generic DbCommand.");
+                    _logger.LogDebug(
+                        CommandNotSqlCommand,
+                        "OperationId: {OperationId}, Thread ID: {ThreadId}. Command is not a SqlCommand; skipping PrepareAsync for generic DbCommand.",
+                        operationId, Environment.CurrentManagedThreadId);
                     }
 
                     var reader = await command.ExecuteReaderAsync(
@@ -94,8 +104,10 @@ namespace RoMars.StreamingJsonOutput.Framework
                         cancellationToken);
 
                     totalTimer.Stop();
-                    _logger.LogTrace("Database query execution setup finished in {TotalMs}ms. Thread ID: {ThreadId}",
-                        totalTimer.Elapsed.TotalMilliseconds, Environment.CurrentManagedThreadId);
+                    _logger.LogTrace(
+                        QuerySetupComplete,
+                        "OperationId: {OperationId}, Thread ID: {ThreadId}, TotalQuerySetupDurationMs: {TotalQuerySetupDurationMs}. Database query execution setup finished.",
+                        operationId, totalTimer.Elapsed.TotalMilliseconds, Environment.CurrentManagedThreadId);
 
                     return (connection, reader);
                 }
@@ -108,27 +120,44 @@ namespace RoMars.StreamingJsonOutput.Framework
                         sqlException = sqlEx;
                     }
 
-                    if (sqlException?.IsTransient() == true && attempt < MaxConnectionRetries)
+                    // Log the transient nature and retry information
+                     if (sqlException?.IsTransient() == true && attempt < MaxConnectionRetries)
                     {
                         var delay = InitialRetryDelay * Math.Pow(2, attempt - 1);
-                        _logger.LogWarning("Transient database error on attempt {Attempt}/{MaxRetries}. Retrying in {DelayMs}ms. Error: {Message}. Thread ID: {ThreadId}",
-                            attempt, MaxConnectionRetries, delay.TotalMilliseconds, ex.Message, Environment.CurrentManagedThreadId);
+                        _logger.LogWarning(
+                            TransientDatabaseError,
+                            ex,
+                            "OperationId: {OperationId}, Thread ID: {ThreadId}, Attempt: {Attempt}/{MaxRetries}, RetryDelayMs: {RetryDelayMs}, SqlErrorCode: {SqlErrorCode}. Transient database error. Retrying. Message: {Message}",
+                            operationId, Environment.CurrentManagedThreadId, attempt, MaxConnectionRetries, delay.TotalMilliseconds, sqlException?.Number, ex.Message);
                         await Task.Delay(delay, cancellationToken);
                     }
                     else
                     {
-                        _logger.LogError(ex, "Non-transient or retry limit reached during streaming database query. Thread ID: {ThreadId}", Environment.CurrentManagedThreadId);
+                        _logger.LogError(
+                            NonTransientDatabaseError,
+                            ex,
+                            "OperationId: {OperationId}, Thread ID: {ThreadId}, Attempt: {Attempt}/{MaxRetries}, SqlErrorCode: {SqlErrorCode}. Non-transient database error or retry limit reached. Message: {Message}",
+                            operationId, Environment.CurrentManagedThreadId, attempt, MaxConnectionRetries, sqlException?.Number, ex.Message);
                         throw;
                     }
                 }
                 catch (Exception ex)
                 {
                     connection?.Dispose();
-                    _logger.LogError(ex, "Unexpected error during streaming database query. Thread ID: {ThreadId}", Environment.CurrentManagedThreadId);
+                    _logger.LogError(
+                        UnexpectedError,
+                        ex,
+                        "OperationId: {OperationId}, Thread ID: {ThreadId}. Unexpected error during streaming database query. Message: {Message}",
+                        operationId, Environment.CurrentManagedThreadId, ex.Message);
                     throw;
                 }
             }
-            throw new InvalidOperationException("Failed to establish database connection after multiple retries.");
+            // Log when retries are exhausted and connection failed
+            _logger.LogError(
+                FailedToEstablishConnection,
+                "OperationId: {OperationId}, Thread ID: {ThreadId}. Failed to establish database connection after {MaxRetries} retries.",
+                operationId, Environment.CurrentManagedThreadId, MaxConnectionRetries);
+            throw new InvalidOperationException($"Failed to establish database connection after {MaxConnectionRetries} retries.");
         }
     }
 

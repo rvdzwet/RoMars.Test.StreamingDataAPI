@@ -8,6 +8,8 @@ using System.Data.Common;
 using IDbConnectionFactory = RoMars.StreamingJsonOutput.Framework.IDbConnectionFactory;
 using SqlConnectionFactory = RoMars.StreamingJsonOutput.Framework.SqlConnectionFactory;
 using SqlParameter = Microsoft.Data.SqlClient.SqlParameter;
+using Microsoft.Extensions.Logging; // Added for ILogger usage
+using HostLoggerExtensions = RoMars.StreamingJsonOutput.Host.Extensions.LoggerExtensions; // Alias for custom LoggerExtensions
 
 internal class Program
 {
@@ -21,7 +23,7 @@ internal class Program
 
         ConfigureResponseCompression(builder);
 
-        builder.Services.AddSingleton<IDbConnectionFactory>(_ => new SqlConnectionFactory(connectionString));
+        builder.Services.AddSingleton<IDbConnectionFactory>(sp => new SqlConnectionFactory(connectionString, sp.GetRequiredService<ILogger<SqlConnectionFactory>>()));
         builder.Services.AddSingleton<IStreamingQueryExecutor, DbDataReaderStreamingQueryExecutor>();
 
         ConfigureSeeder(builder);
@@ -32,15 +34,24 @@ internal class Program
         });
 
         var app = builder.Build();
+        var mainLogger = app.Services.GetRequiredService<ILogger<Program>>(); // Get logger for Program class
 
-        await EnsureDatabaseSeededAsync(app, builder.Configuration);
+        try
+        {
+            await EnsureDatabaseSeededAsync(app, builder.Configuration);
 
-        app.UseResponseCompression();
+            app.UseResponseCompression();
 
-        app.MapGet("/api/documents/ultimate-stream", UltimateDocumentMetadataStream)
-            .WithName("UltimateDocumentMetadataStream");
+            app.MapGet("/api/documents/ultimate-stream", UltimateDocumentMetadataStream)
+                .WithName("UltimateDocumentMetadataStream");
 
-        app.Run();
+            app.Run();
+        }
+        catch (Exception ex)
+        {
+            mainLogger.LogCritical(HostLoggerExtensions.LogApplicationTerminatedUnexpectedly, ex, "Application terminated unexpectedly."); // Use the EventId directly on the logger
+            throw; // Re-throw to allow default host error handling
+        }
     }
 
     private static void ConfigureLogging(WebApplicationBuilder builder)
@@ -81,6 +92,7 @@ internal class Program
             sp.GetRequiredService<ILogger<Seeder>>(),
             sp.GetRequiredService<IDocumentMetadataTableManager>(),
             sp.GetRequiredService<IDbConnectionFactory>(),
+            sp.GetRequiredService<ILogger<DocumentMetadataDataReader>>(), // Add this line
             batchSize,
             bulkCopyTimeoutSeconds));
     }
@@ -128,7 +140,7 @@ internal class Program
     {
         var columnNames = DocumentMetadataSchema.Columns.Select(c => c.Name);
         var selectList = string.Join(", ", columnNames);
-        string query = $"SELECT TOP 100 {selectList} FROM DocumentMetadata WHERE MortgageAmount > @MinAmount ORDER BY DocumentId";
+        string query = $"SELECT TOP 1000 {selectList} FROM DocumentMetadata WHERE MortgageAmount > @MinAmount ORDER BY MortgageAmount";
 
         var parameters = new DbParameter[]
         {
