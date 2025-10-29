@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RoMars.StreamingJsonOutput.Framework\RoMars.StreamingJsonOutput.Framework.csproj" />
+    <ProjectReference Include="..\RoMars.DataStreaming.Json\RoMars.DataStreaming.Json.csproj" />
   </ItemGroup>
 
 </Project>

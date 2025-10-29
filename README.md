@@ -6,21 +6,21 @@ Developers looking to build ultra-responsive APIs for massive data loads will fi
 
 ## Key Features
 
-*   **Zero-Allocation JSON Streaming:** Achieves peak efficiency by directly writing JSON data from the database reader to the HTTP response stream using `Utf8JsonWriter`, eliminating intermediate object allocations and reducing garbage collection pressure.
+*   **Zero-Allocation JSON Streaming with Interface-Based Mapping:** Achieves peak efficiency by directly writing JSON data from a DbDataReader to the HTTP response stream using `Utf8JsonWriter`. This new approach defines JSON output structure using C# interfaces with custom attributes (`DataReaderColumn`, `JsonFlatten`, `DataReaderArrayPattern`), eliminating intermediate object allocations per row and significantly reducing garbage collection pressure. The core streaming logic is encapsulated in a reusable library (`RoMars.DataStreaming.Json`).
 *   **Highly Optimized Database Access:** Leverages `SqlDataReader` with `CommandBehavior.SequentialAccess`, parameterized queries, and prepared statements for incredibly efficient, unbuffered data retrieval from SQL Server. This is particularly critical for wide tables (105 columns) and large result sets.
 *   **Robust Resilience:** Incorporates advanced retry logic with exponential backoff for transient SQL connection failures, ensuring high availability and fault tolerance in dynamic cloud environments (e.g., Kubernetes).
 *   **High Concurrency Ready:** Kestrel server is finely tuned to manage a vast number of concurrent connections, vital for high-volume API services.
 *   **Response Compression:** Integrates Brotli and Gzip compression at the HTTP layer, drastically reducing network payload sizes and accelerating client-side rendering, especially impactful for streaming numerous columns.
-*   **SOLID Principles & Clean Code:** Architected following SOLID principles (SRP, OCP, DIP) through extensive use of interfaces (`IDocumentMetadataGenerator`, `IDocumentMetadataTableManager`, `IDbConnectionFactory`, `IStreamingQueryExecutor`) for superior modularity, testability, and maintainability.
-*   **Efficient Bulk Data Seeding:** Utilizes `SqlBulkCopy` with a custom `IDataReader` (`DocumentMetadataDataReader`) for extremely rapid, zero-allocation database seeding, capable of inserting millions of wide-table records in seconds.
+*   **SOLID Principles & Clean Code:** Architected following SOLID principles (SRP, OCP, DIP) through extensive use of interfaces (`IDocumentMetadataGenerator`, `IDocumentMetadataTableManager`, `IDbConnectionFactory`, `IStreamingQueryExecutor`, `IDocumentMetadataDto` and related DTO interfaces) for superior modularity, testability, and maintainability.
+*   **Efficient Bulk Data Seeding:** Utilizes `SqlBulkCopy` with a custom `DbDataReader` (`DocumentMetadataDataReader`) for extremely rapid, zero-allocation database seeding, capable of inserting millions of wide-table records in seconds.
 *   **Enterprise-Grade Logging:** Configured with structured logging (Trace level for detailed diagnostics) providing deep insights into connection times, query execution phases, streaming progress, and correlated operational events (using `OperationId`s), crucial for performance diagnostics and debugging.
 
 ## Extreme Performance Architecture: Why It's Blazing Fast
 
 The exceptional performance of this API stems from a combination of meticulously chosen patterns and optimizations:
 
-1.  **Direct `DbDataReader` to HTTP Response Streaming (`StreamingDbDataReaderJsonResult`):**
-    *   **Low Memory Footprint:** Instead of loading the entire dataset into memory as a collection of objects (which would be catastrophic for 10M+ records), data is read row-by-row from the `DbDataReader` and immediately written to the HTTP response stream.
+1.  **Direct `DbDataReader` to HTTP Response Streaming with Interface-Based Mapping (`GenericStreamingJsonResult<TInterface>`):**
+    *   **Low Memory Footprint:** Instead of loading the entire dataset into memory as a collection of objects (which would be catastrophic for 10M+ records), data is read row-by-row from the `DbDataReader` and immediately written to the HTTP response stream. The mapping from flat `DbDataReader` rows to complex, hierarchical JSON is driven by C# interfaces and custom attributes, ensuring no intermediate object allocations for each row being streamed.
     *   **`Utf8JsonWriter` for Zero-Allocation JSON:** `System.Text.Json.Utf8JsonWriter` is used directly against `response.BodyWriter.AsStream()`. This avoids string allocations for property names and values, creating JSON in a highly efficient, binary-optimized manner without intermediate `string` or `JToken` objects.
     *   **`IResult` Integration:** Implementing `IResult` in Minimal APIs allows direct control over the HTTP response, enabling custom, high-performance serialization logic.
 
@@ -49,15 +49,22 @@ By combining these techniques, the `RoMars.Test.StreamingDataAPI` achieves a lev
 
 The application is structured to decouple concerns:
 
-*   **`Program.cs`**: Handles application startup, configures logging (now enterprise-grade with `FrameworkLogEvents`), sets up response compression, configures Kestrel, and registers all services via Dependency Injection. It also orchestrates the synchronous database seeding on startup.
+*   **`RoMars.DataStreaming.Json` (NEW Project)**: A standalone, generic class library containing the core, reusable logic for zero-allocation JSON streaming from `DbDataReader` to `Utf8JsonWriter`. This includes:
+    *   **Custom Attributes**: `DataReaderColumnAttribute`, `JsonFlattenAttribute`, `DataReaderArrayPatternAttribute` for declarative interface-based mapping.
+    *   **`DataReaderJsonWriterStrategy<TInterface>`**: Analyzes annotated DTO interfaces to build an efficient, runtime serialization plan.
+    *   **`GenericStreamingJsonResult<TInterface>`**: A custom `IResult` for ASP.NET Core Minimal APIs that executes the serialization plan to stream JSON directly to the HTTP response.
+    *   **`DataStreamingJsonLoggerExtensions`**: Provides structured logging for the generic streaming components.
+*   **`Program.cs`**: Handles application startup, configures logging, sets up response compression, configures Kestrel, and registers all services via Dependency Injection. It also orchestrates the synchronous database seeding on startup and integrates the new generic streaming components.
 *   **`DocumentMetadataSchema.cs`**: A central static class defining the schema for all 105 columns of the `DocumentMetadata` table, ensuring consistency.
-*   **`IDocumentMetadataGenerator.cs` / `DocumentMetadataDataReader.cs`**: Defines an interface for generating synthetic mortgage document metadata and its concrete, highly efficient implementation as a custom `IDataReader` for `SqlBulkCopy`.
+*   **`IDocumentMetadataGenerator.cs` / `DocumentMetadataDataReader.cs`**: Defines an interface for generating synthetic mortgage document metadata and its concrete, highly efficient implementation as a custom `DbDataReader` for `SqlBulkCopy` and generic streaming.
 *   **`IDbConnectionFactory.cs` / `SqlConnectionFactory.cs`**: Provides an abstraction for creating database connections, promoting the Dependency Inversion Principle.
 *   **`IDocumentMetadataTableManager.cs` / `DocumentMetadataTableManager.cs`**: Encapsulates database table schema management.
 *   **`IStreamingQueryExecutor.cs` / `DbDataReaderStreamingQueryExecutor.cs`**: Defines and provides the concrete, highly optimized implementation for executing streaming database queries with retry logic and enhanced logging.
-*   **`StreamingApiResponseJsonResult.cs` & `StreamingDbDataReaderJsonResult.cs`**: Custom `IResult` implementations for ASP.NET Core Minimal APIs that directly stream JSON data from various sources (including `DbDataReader`) to the HTTP response using `Utf8JsonWriter`, forming the core of the zero-allocation streaming capability.
+*   **`IDocumentMetadataDto.cs` & Nested DTO Interfaces (e.g., `ICustomerDto`, `IPropertyDto`)**: Located in `RoMars.StreamingJsonOutput.Framework/Models`, these interfaces define the application-specific structured JSON contract for document metadata, utilizing the custom attributes from `RoMars.DataStreaming.Json`.
+*   **`StreamingApiResponseJsonResult.cs`**: A custom `IResult` implementation that streams JSON data from `DbDataReader` wrapped in a generic API response envelope (with metadata and data sections). Its logging is now handled by `ApiResponseLoggerExtensions`.
 *   **`SqlExceptionExtensions.cs`**: An extension method to identify transient SQL errors.
-*   **`FrameworkLogEvents.cs`**: Defines static `EventId` constants for structured, enterprise-grade logging across the framework.
+*   **`FrameworkLoggerExtensions.cs`**: Defines static `EventId` constants for structured, enterprise-grade logging across the core framework, distinct from `ApiResponseLoggerExtensions`.
+*   **`ApiResponseLoggerExtensions.cs`**: Provides structured logging specifically for `StreamingApiResponseJsonResult`.
 
 ### Document Metadata Table Schema (105 Columns)
 

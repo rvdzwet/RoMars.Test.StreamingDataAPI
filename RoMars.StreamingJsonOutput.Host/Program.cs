@@ -10,6 +10,9 @@ using SqlConnectionFactory = RoMars.StreamingJsonOutput.Framework.SqlConnectionF
 using SqlParameter = Microsoft.Data.SqlClient.SqlParameter;
 using Microsoft.Extensions.Logging; // Added for ILogger usage
 using HostLoggerExtensions = RoMars.StreamingJsonOutput.Host.Extensions.LoggerExtensions; // Alias for custom LoggerExtensions
+using RoMars.DataStreaming.Json; // New: For DataReaderJsonWriterStrategy and GenericStreamingJsonResult
+using RoMars.DataStreaming.Json.LoggerExtensions; // New: For DataStreamingJsonLoggerExtensions
+using RoMars.StreamingJsonOutput.Framework.Models; // New: For IDocumentMetadataDto and nested interfaces
 
 internal class Program
 {
@@ -25,6 +28,25 @@ internal class Program
 
         builder.Services.AddSingleton<IDbConnectionFactory>(sp => new SqlConnectionFactory(connectionString, sp.GetRequiredService<ILogger<SqlConnectionFactory>>()));
         builder.Services.AddSingleton<IStreamingQueryExecutor, DbDataReaderStreamingQueryExecutor>();
+
+        // Register the generic JSON writer strategy as a singleton.
+        // It requires a DbDataReader for schema introspection at startup.
+        // DocumentMetadataDataReader can provide schema without generating actual data on construction.
+        builder.Services.AddSingleton(sp =>
+        {
+            // Create a dummy logger for schema discovery phase of DocumentMetadataDataReader
+            var dummyDataReaderLogger = new Logger<DocumentMetadataDataReader>(
+                sp.GetRequiredService<ILoggerFactory>());
+
+            using var sampleDataReader = new DocumentMetadataDataReader(
+                startingId: 1, // These values don't matter as we only need schema
+                recordsToGenerate: 0, // No records generated, only schema is used
+                logger: dummyDataReaderLogger);
+
+            return new DataReaderJsonWriterStrategy<IDocumentMetadataDto>(
+                sampleDataReader,
+                sp.GetRequiredService<ILogger<DataReaderJsonWriterStrategy<IDocumentMetadataDto>>>());
+        });
 
         ConfigureSeeder(builder);
 
@@ -135,12 +157,13 @@ internal class Program
     private static async Task<IResult> UltimateDocumentMetadataStream(
         [FromServices] IStreamingQueryExecutor executor,
         [FromServices] IDbConnectionFactory connectionFactory,
-        [FromServices] ILogger<StreamingDbDataReaderJsonResult> logger,
+        [FromServices] ILogger<GenericStreamingJsonResult<IDocumentMetadataDto>> logger, // Changed logger type
+        [FromServices] DataReaderJsonWriterStrategy<IDocumentMetadataDto> serializerStrategy, // Injected new strategy
         CancellationToken cancellationToken)
     {
         var columnNames = DocumentMetadataSchema.Columns.Select(c => c.Name);
         var selectList = string.Join(", ", columnNames);
-        string query = $"SELECT TOP 1000 {selectList} FROM DocumentMetadata WHERE MortgageAmount > @MinAmount ORDER BY MortgageAmount";
+        string query = $"SELECT TOP 100 {selectList} FROM DocumentMetadata WHERE MortgageAmount > @MinAmount ORDER BY MortgageAmount";
 
         var parameters = new DbParameter[]
         {
@@ -154,6 +177,7 @@ internal class Program
 
         var (connection, reader) = await executor.ExecuteStreamingQueryAsync(query, parameters, cancellationToken);
 
-        return new StreamingDbDataReaderJsonResult(connection, reader, logger);
+        // Return the new generic streaming result
+        return new GenericStreamingJsonResult<IDocumentMetadataDto>(connection, reader, logger, serializerStrategy);
     }
 }

@@ -16,7 +16,7 @@ namespace RoMars.StreamingJsonOutput.Host
     /// It avoids creating a collection of objects in memory for the entire dataset,
     /// instead generating one record at a time directly to the SqlBulkCopy stream.
     /// </remarks>
-    public class DocumentMetadataDataReader : IDataReader
+    public class DocumentMetadataDataReader : System.Data.Common.DbDataReader
     {
         public long TotalRecords => _recordsToGenerate; // Number of records this instance is generating
 
@@ -53,7 +53,7 @@ namespace RoMars.StreamingJsonOutput.Host
         // Its simplicity (just a counter increment and comparison) is key to its
         // performance, allowing for extremely fast pseudo-data generation without
         // I/O overhead or complex logic for each record.
-        public bool Read()
+        public override bool Read()
         {
             _currentIndex++;
             _logger.LogTrace(HostLoggerExtensions.LogDataReaderRead.Id, 
@@ -62,15 +62,7 @@ namespace RoMars.StreamingJsonOutput.Host
             return _currentIndex <= _recordsToGenerate;
         }
 
-        /// <summary>
-        /// Generates a value for the specified column based on its type and current index.
-        /// Performance Comment: The 'GetValue' method efficiently computes each field
-        /// based on its type and the current iteration (`_currentIndex`). Direct type-specific
-        /// data generation prevents boxing/unboxing overhead and provides faster access.
-        /// String interpolations are carefully used to minimize new string allocations where possible,
-        /// preferring a fixed set of adjectives/nouns and appending the index.
-        /// </summary>
-        public object GetValue(int i)
+        public override object GetValue(int i)
         {
             var column = _schema[i];
             int uniqueIdFragment = (int)((_startingId + _currentIndex) % 10000); // Use a fragment for varying categorical data
@@ -143,15 +135,15 @@ namespace RoMars.StreamingJsonOutput.Host
 
         // Performance Comment: FieldCount is a constant, ensuring immediate return
         // without computation, critical for performance-sensitive data readers.
-        public int FieldCount => _schema.Count;
+        public override int FieldCount => _schema.Count;
 
         // Performance Comment: For synthetic data, explicitly stating no DBNulls
         // avoids unnecessary checks or more complex logic, optimizing access paths.
-        public bool IsDBNull(int i) => false;
+        public override bool IsDBNull(int i) => false;
 
         // Performance Comment: Directly accessing and assigning values from GetValue(i)
         // minimizes overhead compared to iterating or using less efficient methods.
-        public int GetValues(object[] values)
+        public override int GetValues(object[] values)
         {
             for (int i = 0; i < _schema.Count; i++)
             {
@@ -162,40 +154,45 @@ namespace RoMars.StreamingJsonOutput.Host
 
         // Minimal required implementation primarily for SqlBulkCopy
         // Performance Comment: Direct lookup from the schema list is efficient.
-        public string GetName(int i) => _schema[i].Name;
+        public override string GetName(int i) => _schema[i].Name;
         // Performance Comment: Directly maps to GetFieldType, efficiently providing metadata.
-        public string GetDataTypeName(int i) => _schema[i].ClrType.Name;
+        public override string GetDataTypeName(int i) => _schema[i].ClrType.Name;
         // Performance Comment: Provides direct type information without complex runtime checks.
-        public Type GetFieldType(int i) => _schema[i].ClrType;
+        public override Type GetFieldType(int i) => _schema[i].ClrType;
 
         // Other IDataReader members (mostly unused by SqlBulkCopy, minimal implementation for completeness)
-        public void Close() { }
-        public int Depth => 0;
-        public DataTable GetSchemaTable() => throw new NotSupportedException("Schema table is not supported for this data generator.");
-        public bool IsClosed => _currentIndex > _recordsToGenerate;
-        public bool NextResult() => false; // Only one result set is generated
-        public int RecordsAffected => (int)_currentIndex;
+        public override void Close() { }
+        public override int Depth => 0;
+        public override DataTable GetSchemaTable() => throw new NotSupportedException("Schema table is not supported for this data generator.");
+        public override bool IsClosed => _currentIndex > _recordsToGenerate;
+        public override bool NextResult() => false; // Only one result set is generated
+        public override int RecordsAffected => (int)_currentIndex;
 
-        public object this[string name] => GetValue(GetOrdinal(name)); // Provides indexed access for convenience
-        public object this[int i] => GetValue(i); // Provides indexed access for convenience
+        public override object this[string name] => GetValue(GetOrdinal(name)); // Provides indexed access for convenience
+        public override object this[int i] => GetValue(i); // Provides indexed access for convenience
 
-        public void Dispose() { } // No unmanaged resources
-        public bool GetBoolean(int i) => (bool)GetValue(i);
-        public byte GetByte(int i) => (byte)GetValue(i);
-        public long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length) => throw new NotSupportedException("Byte array retrieval not supported directly.");
-        public char GetChar(int i) => (char)GetValue(i);
-        public long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length) => throw new NotSupportedException("Char array retrieval not supported directly.");
-        public IDataReader GetData(int i) => throw new NotSupportedException("Nested data readers not supported for this generator.");
-        public string GetString(int i) => GetValue(i)?.ToString() ?? string.Empty; // Handle potential null references
-        public decimal GetDecimal(int i) => (decimal)GetValue(i)!; // Use null-forgiving operator if GetValue is guaranteed non-null based on logic
-        public DateTime GetDateTime(int i) => (DateTime)GetValue(i)!;
-        public double GetDouble(int i) => (double)GetValue(i)!;
-        public float GetFloat(int i) => (float)GetValue(i)!;
-        public Guid GetGuid(int i) => (Guid)GetValue(i)!;
-        public short GetInt16(int i) => (short)GetValue(i)!;
-        public int GetInt32(int i) => (int)GetValue(i)!;
-        public long GetInt64(int i) => (long)GetValue(i)!; // Performance Comment: Directly casts GetValue(i) for efficient access.
-        public int GetOrdinal(string name)
+        protected override void Dispose(bool disposing)
+        {
+            // Nothing to dispose for this synthetic reader
+            base.Dispose(disposing);
+        }
+
+        public override bool GetBoolean(int i) => (bool)GetValue(i);
+        public override byte GetByte(int i) => (byte)GetValue(i);
+        public override long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length) => throw new NotSupportedException("Byte array retrieval not supported directly.");
+        public override char GetChar(int i) => (char)GetValue(i);
+        public override long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length) => throw new NotSupportedException("Char array retrieval not supported directly.");
+        public new IDataReader GetData(int i) => throw new NotSupportedException("Nested data readers not supported for this generator.");
+        public override string GetString(int i) => GetValue(i)?.ToString() ?? string.Empty; // Handle potential null references
+        public override decimal GetDecimal(int i) => (decimal)GetValue(i)!; // Use null-forgiving operator if GetValue is guaranteed non-null based on logic
+        public override DateTime GetDateTime(int i) => (DateTime)GetValue(i)!;
+        public override double GetDouble(int i) => (double)GetValue(i)!;
+        public override float GetFloat(int i) => (float)GetValue(i)!;
+        public override Guid GetGuid(int i) => (Guid)GetValue(i)!;
+        public override short GetInt16(int i) => (short)GetValue(i)!;
+        public override int GetInt32(int i) => (int)GetValue(i)!;
+        public override long GetInt64(int i) => (long)GetValue(i)!; // Performance Comment: Directly casts GetValue(i) for efficient access.
+        public override int GetOrdinal(string name)
         {
             for (int i = 0; i < _schema.Count; i++)
             {
@@ -206,6 +203,9 @@ namespace RoMars.StreamingJsonOutput.Host
             }
             throw new IndexOutOfRangeException($"Column '{name}' not found in schema.");
         }
+
+        public override bool HasRows => _recordsToGenerate > 0; // True if there are records to generate
+        public override System.Collections.IEnumerator GetEnumerator() => throw new NotSupportedException("GetEnumerator is not supported for this data generator.");
 
         // Helper for generating random words/strings
         private string GenerateRandomWord()

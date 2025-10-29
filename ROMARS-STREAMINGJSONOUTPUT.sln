@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoMars.StreamingJsonOutput.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoMars.StreamingJsonOutput.Host", "RoMars.StreamingJsonOutput.Host\RoMars.StreamingJsonOutput.Host.csproj", "{050F3966-CD95-A8AB-0C10-C6111AA87520}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoMars.DataStreaming.Json", "RoMars.DataStreaming.Json\RoMars.DataStreaming.Json.csproj", "{354C2000-042B-2C5B-0FA2-923F04C2EFC0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{050F3966-CD95-A8AB-0C10-C6111AA87520}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{050F3966-CD95-A8AB-0C10-C6111AA87520}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{050F3966-CD95-A8AB-0C10-C6111AA87520}.Release|Any CPU.Build.0 = Release|Any CPU
+		{354C2000-042B-2C5B-0FA2-923F04C2EFC0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{354C2000-042B-2C5B-0FA2-923F04C2EFC0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{354C2000-042B-2C5B-0FA2-923F04C2EFC0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{354C2000-042B-2C5B-0FA2-923F04C2EFC0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

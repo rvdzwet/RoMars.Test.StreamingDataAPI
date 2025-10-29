@@ -5,7 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using RoMars.StreamingJsonOutput.Framework.Models;
 using System.Globalization;
-using static RoMars.StreamingJsonOutput.Framework.FrameworkLoggerExtensions; // For LogStreaming* events
+using static RoMars.StreamingJsonOutput.Framework.ApiResponseLoggerExtensions; // Using dedicated ApiResponseLoggerExtensions
 
 namespace RoMars.StreamingJsonOutput.Framework
 {
@@ -18,7 +18,7 @@ namespace RoMars.StreamingJsonOutput.Framework
     {
         private readonly DbConnection _connection;
         private readonly DbDataReader _reader;
-        private readonly ILogger _logger; // Use base ILogger
+        private readonly ILogger<StreamingApiResponseJsonResult> _logger; // Use strongly-typed logger
         private readonly string _correlationId;
 
         // Optimized type-specific writer actions
@@ -39,7 +39,7 @@ namespace RoMars.StreamingJsonOutput.Framework
                 { typeof(string), (writer, reader, i) => writer.WriteStringValue(reader.GetString(i)) }
             };
 
-        public StreamingApiResponseJsonResult(DbConnection connection, DbDataReader reader, ILogger logger, string correlationId)
+        public StreamingApiResponseJsonResult(DbConnection connection, DbDataReader reader, ILogger<StreamingApiResponseJsonResult> logger, string correlationId)
         {
             _connection = connection ?? throw new ArgumentNullException(nameof(connection));
             _reader = reader ?? throw new ArgumentNullException(nameof(reader));
