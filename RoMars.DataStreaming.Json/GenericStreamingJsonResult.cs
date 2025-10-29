@@ -54,6 +54,7 @@ namespace RoMars.DataStreaming.Json
             {
                 await using (var writer = new Utf8JsonWriter(response.BodyWriter.AsStream(), new JsonWriterOptions { Indented = false }))
                 {
+                    _logger.LogWriterCreated();
                     writer.WriteStartArray();
 
                     while (await _reader.ReadAsync(httpContext.RequestAborted))
@@ -63,13 +64,14 @@ namespace RoMars.DataStreaming.Json
                         writer.WriteEndObject();   // End object for current row
                         rowCount++;
 
-                        if (rowCount % 10000 == 0)
+                        if (rowCount % 5 == 0)
                         {
                             _logger.LogRowBatchProcessed(targetTypeName, rowCount, streamTimer.Elapsed.TotalMilliseconds, connectionId, threadId);
                         }
                     }
                     writer.WriteEndArray();
                     await writer.FlushAsync(httpContext.RequestAborted);
+                    _logger.LogWriterFlushed();
                 }
             }
             catch (OperationCanceledException) when (httpContext.RequestAborted.IsCancellationRequested)
@@ -84,7 +86,9 @@ namespace RoMars.DataStreaming.Json
             finally
             {
                 _reader?.Dispose();
+                _logger.LogDataReaderDisposed();
                 _connection?.Dispose(); // Ensure connection is disposed
+                _logger.LogConnectionDisposed();
                 streamTimer.Stop();
                 _logger.LogStreamingComplete(targetTypeName, streamTimer.Elapsed.TotalMilliseconds, rowCount, connectionId, threadId);
             }

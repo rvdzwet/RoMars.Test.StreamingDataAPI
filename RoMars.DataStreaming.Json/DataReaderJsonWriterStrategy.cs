@@ -63,13 +63,22 @@ namespace RoMars.DataStreaming.Json
             if (_jsonTypeWriters.IsEmpty || _dataReaderTypeReaders.IsEmpty)
             {
                 InitializeTypeDelegates(logger);
+                logger.LogTypeDelegatesInitialized();
             }
 
             // Get or create serialization plan from cache
-            _plan = _planCache.GetOrAdd(typeof(TInterface), _ => BuildSerializationPlan(sampleReader, logger));
+            _plan = _planCache.GetOrAdd(typeof(TInterface), type =>
+            {
+                if (_planCache.TryGetValue(type, out var cachedPlan))
+                {
+                    _logger.LogPlanCacheHit(type.Name);
+                    return cachedPlan;
+                }
+                _logger.LogPlanCacheMiss(type.Name);
+                return BuildSerializationPlan(sampleReader, logger);
+            });
         }
 
-        // The public method to execute the serialization plan for a single row
         // The public method to execute the serialization plan for a single row
         public void Write(Utf8JsonWriter writer, DbDataReader reader)
         {
@@ -174,11 +183,13 @@ namespace RoMars.DataStreaming.Json
                 try
                 {
                     string jsonPropertyName = GetJsonPropertyName(property.Name, property);
+                    logger_instance.LogBuildingPlanForProperty(property.Name, currentType.Name);
 
                     // Handle IEnumerable (arrays from pattern)
                     var arrayPatternAttr = property.GetCustomAttribute<DataReaderArrayPatternAttribute>();
                     if (arrayPatternAttr != null)
                     {
+                        logger_instance.LogPropertyIsArrayPattern(property.Name, arrayPatternAttr.ColumnPrefix);
                         if (!IsEnumerableOfPrimitive(property.PropertyType))
                         {
                             logger_instance.LogUnsupportedArrayPropertyType(property.Name, property.PropertyType.Name);
@@ -228,6 +239,9 @@ namespace RoMars.DataStreaming.Json
                     if (property.PropertyType.IsInterface)
                     {
                         var flattenAttr = property.GetCustomAttribute<JsonFlattenAttribute>();
+                        bool currentIsFlattened = (flattenAttr != null || outermost);
+                        logger_instance.LogPropertyIsNestedInterface(property.Name, currentType.Name, currentIsFlattened);
+
                         if (flattenAttr == null && !outermost) // If it's a nested interface and not a flattened one, it must be nested object
                         {
                             BuildPlanForType(property.PropertyType, jsonWriteInstructions, dataReaderReadInstructions, reader, logger_instance, ref preReadValueIndexCounter, jsonPropertyName, isFlattened: false);
@@ -246,6 +260,7 @@ namespace RoMars.DataStreaming.Json
                     try
                     {
                         ordinal = reader.GetOrdinal(dataReaderColumnNameToMap);
+                        logger_instance.LogPropertyIsPrimitive(property.Name, dataReaderColumnNameToMap, ordinal);
                     }
                     catch (IndexOutOfRangeException)
                     {

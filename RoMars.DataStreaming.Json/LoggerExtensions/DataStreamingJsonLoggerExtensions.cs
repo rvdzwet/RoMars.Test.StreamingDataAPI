@@ -100,5 +100,71 @@ namespace RoMars.DataStreaming.Json.LoggerExtensions
             Level = LogLevel.Error,
             Message = "Property '{PropertyName}' in '{DeclaringTypeName}' is an interface but is not marked with [JsonFlatten]. Nested interfaces must be marked as [JsonFlatten] to be processed.")]
         internal static partial void LogNestedInterfaceNotFlattened(this ILogger logger, string propertyName, string declaringTypeName);
+
+        [LoggerMessage(
+            EventId = 1015,
+            Level = LogLevel.Debug,
+            Message = "Serialization plan for Type: {TargetTypeName} retrieved from cache.")]
+        internal static partial void LogPlanCacheHit(this ILogger logger, string targetTypeName);
+
+        [LoggerMessage(
+            EventId = 1016,
+            Level = LogLevel.Debug,
+            Message = "Serialization plan for Type: {TargetTypeName} not found in cache. Building new plan.")]
+        internal static partial void LogPlanCacheMiss(this ILogger logger, string targetTypeName);
+
+        [LoggerMessage(
+            EventId = 1017,
+            Level = LogLevel.Trace,
+            Message = "Building plan for property '{PropertyName}' in type '{CurrentTypeName}'.")]
+        internal static partial void LogBuildingPlanForProperty(this ILogger logger, string propertyName, string currentTypeName);
+
+        [LoggerMessage(
+            EventId = 1018,
+            Level = LogLevel.Trace,
+            Message = "Property '{PropertyName}' detected as array pattern with prefix '{ColumnPrefix}'.")]
+        internal static partial void LogPropertyIsArrayPattern(this ILogger logger, string propertyName, string columnPrefix);
+
+        [LoggerMessage(
+            EventId = 1019,
+            Level = LogLevel.Trace,
+            Message = "Property '{PropertyName}' in '{CurrentTypeName}' detected as nested interface. IsFlattened: {IsFlattened}.")]
+        internal static partial void LogPropertyIsNestedInterface(this ILogger logger, string propertyName, string currentTypeName, bool isFlattened);
+
+        [LoggerMessage(
+            EventId = 1020,
+            Level = LogLevel.Trace,
+            Message = "Property '{PropertyName}' mapped as primitive from column '{DataReaderColumnName}' at ordinal {Ordinal}.")]
+        internal static partial void LogPropertyIsPrimitive(this ILogger logger, string propertyName, string dataReaderColumnName, int ordinal);
+
+        [LoggerMessage(
+            EventId = 1021,
+            Level = LogLevel.Information,
+            Message = "Type delegate writers and readers initialized.")]
+        internal static partial void LogTypeDelegatesInitialized(this ILogger logger);
+
+        [LoggerMessage(
+            EventId = 1022,
+            Level = LogLevel.Trace,
+            Message = "DbDataReader disposed.")]
+        internal static partial void LogDataReaderDisposed(this ILogger logger);
+
+        [LoggerMessage(
+            EventId = 1023,
+            Level = LogLevel.Trace,
+            Message = "DbConnection disposed.")]
+        internal static partial void LogConnectionDisposed(this ILogger logger);
+
+        [LoggerMessage(
+            EventId = 1024,
+            Level = LogLevel.Debug,
+            Message = "Utf8JsonWriter created.")]
+        internal static partial void LogWriterCreated(this ILogger logger);
+
+        [LoggerMessage(
+            EventId = 1025,
+            Level = LogLevel.Debug,
+            Message = "Utf8JsonWriter flushed.")]
+        internal static partial void LogWriterFlushed(this ILogger logger);
     }
 }
